@@ -26,7 +26,7 @@ class ResFPN(Model):
 
         # self.model_layers["conv2_lateral"] = Conv2D()
 
-    def create_fpn_block(self):
+    # def create_fpn_block(self):
         
 
     def create_res_block(self, filters, kernel_size=3, stride=1, conv_shortcut=True, name=None):
