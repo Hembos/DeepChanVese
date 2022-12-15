@@ -1,4 +1,4 @@
-from keras.layers import Conv2D, BatchNormalization, Activation, ZeroPadding2D, MaxPooling2D, Add, Input
+from keras.layers import Conv2D, BatchNormalization, Activation, ZeroPadding2D, MaxPooling2D, Add, Input, Resizing
 import tensorflow as tf
 from keras import Model
 
@@ -24,10 +24,16 @@ class ResFPN(Model):
         self.create_stack(256, 6, name="conv4")
         self.create_stack(512, 3, name="conv5")
 
-        # self.model_layers["conv2_lateral"] = Conv2D()
+        self.model_layers["fpn5_conv"] = Conv2D(256, 1)
+        self.model_layers["fpn4_conv"] = Conv2D(256, 1)
+        self.model_layers["fpn3_conv"] = Conv2D(256, 1)
+        self.model_layers["fpn2_conv"] = Conv2D(256, 1)
 
-    # def create_fpn_block(self):
-        
+        self.model_layers["fpn4_dialising"] = Conv2D(256, 3, padding='same')
+        self.model_layers["fpn3_dialising"] = Conv2D(256, 3, padding='same')
+        self.model_layers["fpn2_dialising"] = Conv2D(256, 3, padding='same')
+
+        # self.model_layers["conv2_lateral"] = Conv2D()
 
     def create_res_block(self, filters, kernel_size=3, stride=1, conv_shortcut=True, name=None):
         if conv_shortcut:
@@ -97,6 +103,15 @@ class ResFPN(Model):
         c4 = self.call_resnet_stack(c3, 4, training, 6)
         c5 = self.call_resnet_stack(c4, 5, training, 3)
 
+        p5 = self.model_layers["fpn5_conv"](c5)
+        p4 = Add()([self.model_layers["fpn4_conv"](c4), Resizing(c4.shape[1], c4.shape[2], interpolation='nearest')(p5)])
+        p3 = Add()([self.model_layers["fpn3_conv"](c3), Resizing(c3.shape[1], c3.shape[2], interpolation='nearest')(p4)])
+        p2 = Add()([self.model_layers["fpn2_conv"](c2), Resizing(c2.shape[1], c2.shape[2], interpolation='nearest')(p3)])
+
+        p4 = self.model_layers["fpn4_dialising"](p4)
+        p3 = self.model_layers["fpn3_dialising"](p3)
+        p2 = self.model_layers["fpn2_dialising"](p2)
         
-            
+        print(p2.shape)
+
         return c5
