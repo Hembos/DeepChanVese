@@ -1,9 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import scipy.ndimage as nd
 from PIL import Image
 from tqdm import tqdm
-import torch
 
 def mask_to_phi(mask):
     phi = np.zeros(mask.shape)
@@ -30,8 +28,6 @@ class ChanVese():
     def run(self, input, initial_phi, dt = 0.5, eps = 1, lam1 = 1, lam2 = 1, mu = 0.2):
         phi = initial_phi
         for i in tqdm(range(self.num_iter), total=self.num_iter):
-            print(f"iter number: {i + 1}")
-
             #c1 - average intensity inside object, c2 - average intensity outside object
             c1, c2 = self.__calc_aver_intensity__(input, phi, eps[i])
             # print(f"average intensities: {c1}, {c2}")
@@ -50,16 +46,16 @@ class ChanVese():
         c1_ind = np.flatnonzero(phi >= 0)
         c2_ind = np.flatnonzero(phi < 0)
 
-        c1 = np.sum(input.flat[c1_ind]) / (len(c1_ind) + eps)
-        c2 = np.sum(input.flat[c2_ind]) / (len(c2_ind) + eps)
+        c1 = np.array([np.sum(x.flat[c1_ind]) for x in input]) / (len(c1_ind) + eps)
+        c2 = np.array([np.sum(x.flat[c2_ind]) for x in input]) / (len(c2_ind) + eps)
 
         return (c1, c2)
     
     def __update_phi__(self, input, phi, c1, c2, dt, eps, lam1, lam2, mu):
-        idx = np.nonzero(np.logical_and(phi <= 1.2, phi >= -1.2))
+        # idx = np.nonzero(np.logical_and(phi <= 1.2, phi >= -1.2))
 
-        if len(idx) < 0:
-            return
+        # if len(idx) < 0:
+        #     return
 
         size = len(phi)
         calc_a = lambda i, j: mu / np.sqrt(np.power(self.eta, 2) + 
@@ -79,10 +75,10 @@ class ChanVese():
 
                 dirac_val = self.__dirac__(elem, eps)
 
-                intensity_vec = a[:,i:i+1,j:j+1].flatten()
+                intensity_vec = input[:,i:i+1,j:j+1].flatten()
 
-                c1_norm = torch.norm(intensity_vec - c1)
-                c2_norm = torch.norm(intensity_vec - c2)
+                c1_norm = np.linalg.norm(intensity_vec - c1)
+                c2_norm = np.linalg.norm(intensity_vec - c2)
                 
                 tmp = phi[i][j] + dt * dirac_val * (a * phi[i + 1 if i<size-1 else i][j] +
                                 up_a * phi[i - 1 if i else 0][j] + 
