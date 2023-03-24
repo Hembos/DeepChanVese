@@ -15,6 +15,8 @@ from chanVeseHeads import ChanVeseModel
 
 import matplotlib.pyplot as plt 
 
+import time
+
 def maskrcnn_inference(x, labels):
     # type: (Tensor, List[Tensor]) -> List[Tensor]
     """
@@ -149,13 +151,17 @@ class RoiHeadsWithTSDF(RoIHeads):
         masks_phi = []
         for class_num, feature in zip(labels, features):
             x = feature[class_num]
+            start = time.time()
             x = self.cv(x)
+            end = time.time()
+            print(end - start)
             masks_phi.append(x)
 
-        masks_phi = torch.tensor(masks_phi,  dtype=torch.float32)
+        masks_phi = torch.tensor(np.array(masks_phi),  dtype=torch.float32)
 
         # plt.imshow(masks_phi[0])
         # plt.show()
+        masks_phi = masks_phi.to(torch.device('cuda:0'))
 
         loss = maskrcnn_loss(masks_phi, mask_proposals, gt_masks, gt_labels, mask_matched_idxs)
 
@@ -169,7 +175,9 @@ class RoiHeadsWithTSDF(RoIHeads):
             x = self.cv(x)
             masks_phi.append(x)
 
-        masks_phi = torch.tensor(masks_phi,  dtype=torch.float32)
+        masks_phi = torch.tensor(np.array(masks_phi),  dtype=torch.float32)
+
+        masks_phi = masks_phi.to(torch.device('cuda:0'))
 
         mask_prob = masks_phi.sigmoid()
 
