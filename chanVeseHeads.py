@@ -16,7 +16,7 @@ class InitialTSDFModel(nn.Module):
         super(InitialTSDFModel, self).__init__()
 
     def forward(self, input):
-        sd = skfmm.distance(input.detach().numpy())
+        sd = skfmm.distance(input.cpu().detach().numpy())
         sd_max = sd.max()
         sd_min = sd.min()
         sd = -1 + (sd - sd_min) / (sd_max - sd_min) * 2
@@ -129,9 +129,9 @@ class ChanVeseModel(nn.Module):
         width = features.shape[2]
         height = features.shape[3]
 
-        phi = chanvese_module.run(torch.squeeze(features).detach().numpy().astype(float).flatten(), width, height, 64, 
-                            torch.squeeze(initTSDF).detach().numpy().astype(float).flatten(), self.num_iters, 
-                            eps.detach().numpy().astype(float).flatten(), dt.detach().numpy().astype(float).flatten(), lam1.detach().numpy(), lam2.detach().numpy(), mu.detach().numpy())    
+        phi = chanvese_module.run(torch.squeeze(features).cpu().detach().numpy().astype(float).flatten(), width, height, 64, 
+                            torch.squeeze(initTSDF).cpu().detach().numpy().astype(float).flatten(), self.num_iters, 
+                            eps.cpu().detach().numpy().astype(float).flatten(), dt.cpu().detach().numpy().astype(float).flatten(), lam1.cpu().detach().numpy(), lam2.cpu().detach().numpy(), mu.cpu().detach().numpy())    
 
         # img_with_mask = np.zeros((height, width, 3))
         # for i in range(height):
