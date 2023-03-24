@@ -1,13 +1,98 @@
 from torchvision.models.detection.roi_heads import RoIHeads
-from torchvision.models.detection.roi_heads import fastrcnn_loss, maskrcnn_loss, maskrcnn_inference
+from torchvision.models.detection.roi_heads import fastrcnn_loss
+from torchvision.ops import roi_align
 from torchvision.models.detection.roi_heads import keypointrcnn_loss, keypointrcnn_inference
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
+import torch.nn.functional as F
 
 import torch
 
+import numpy as np
+
 from chanVeseHeads import ChanVeseModel
+
+import matplotlib.pyplot as plt 
+
+def maskrcnn_inference(x, labels):
+    # type: (Tensor, List[Tensor]) -> List[Tensor]
+    """
+    From the results of the CNN, post process the masks
+    by taking the mask corresponding to the class with max
+    probability (which are of fixed size and directly output
+    by the CNN) and return the masks in the mask field of the BoxList.
+
+    Args:
+        x (Tensor): the mask logits
+        labels (list[BoxList]): bounding boxes that are used as
+            reference, one for ech image
+
+    Returns:
+        results (list[BoxList]): one BoxList for each image, containing
+            the extra field mask
+    """
+    mask_prob = x.sigmoid()
+
+    # select masks corresponding to the predicted classes
+    num_masks = x.shape[0]
+    boxes_per_image = [label.shape[0] for label in labels]
+    labels = torch.cat(labels)
+    index = torch.arange(num_masks, device=labels.device)
+    mask_prob = mask_prob[index, labels][:, None]
+    mask_prob = mask_prob.split(boxes_per_image, dim=0)
+
+    return mask_prob
+
+def project_masks_on_boxes(gt_masks, boxes, matched_idxs, M):
+    # type: (Tensor, Tensor, Tensor, int) -> Tensor
+    """
+    Given segmentation masks and the bounding boxes corresponding
+    to the location of the masks in the image, this function
+    crops and resizes the masks in the position defined by the
+    boxes. This prepares the masks for them to be fed to the
+    loss computation as the targets.
+    """
+    matched_idxs = matched_idxs.to(boxes)
+    rois = torch.cat([matched_idxs[:, None], boxes], dim=1)
+    gt_masks = gt_masks[:, None].to(rois)
+    return roi_align(gt_masks, rois, (M, M), 1.0)[:, 0]
+
+
+def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs):
+    # type: (Tensor, List[Tensor], List[Tensor], List[Tensor], List[Tensor]) -> Tensor
+    """
+    Args:
+        proposals (list[BoxList])
+        mask_logits (Tensor)
+        targets (list[BoxList])
+
+    Return:
+        mask_loss (Tensor): scalar tensor containing the loss
+    """
+
+    discretization_size = mask_logits.shape[-1]
+    labels = [gt_label[idxs] for gt_label, idxs in zip(gt_labels, mask_matched_idxs)]
+    mask_targets = [
+        project_masks_on_boxes(m, p, i, discretization_size) for m, p, i in zip(gt_masks, proposals, mask_matched_idxs)
+    ]
+
+    labels = torch.cat(labels, dim=0)
+    mask_targets = torch.cat(mask_targets, dim=0)
+
+    phi_targets = (mask_targets - 0.5) / 0.5
+
+    l1_loss = F.l1_loss(mask_logits, phi_targets)
+
+    mask_logits = mask_logits.sigmoid()
+
+    if mask_targets.numel() == 0:
+        return mask_logits.sum() * 0
+
+    mask_loss = F.binary_cross_entropy(
+        mask_logits, mask_targets
+    )
+    return l1_loss + mask_loss
 
 class RoiHeadsWithTSDF(RoIHeads):
     def __init__(
@@ -52,6 +137,43 @@ class RoiHeadsWithTSDF(RoIHeads):
             keypoint_head,
             keypoint_predictor)
         
+        self.cv = ChanVeseModel(100)
+        
+    def __apply_chan_vese_train__(self, mask_logits, mask_proposals, gt_labels, gt_masks, mask_matched_idxs):
+        features = mask_logits
+
+        labels = [gt_label[idxs] for gt_label, idxs in zip(gt_labels, mask_matched_idxs)]
+
+        labels = torch.cat(labels, dim=0)
+
+        masks_phi = []
+        for class_num, feature in zip(labels, features):
+            x = feature[class_num]
+            x = self.cv(x)
+            masks_phi.append(x)
+
+        masks_phi = torch.tensor(masks_phi,  dtype=torch.float32)
+
+        # plt.imshow(masks_phi[0])
+        # plt.show()
+
+        loss = maskrcnn_loss(masks_phi, mask_proposals, gt_masks, gt_labels, mask_matched_idxs)
+
+        return loss
+    
+    def __apply_chan_vese_eval__(self, mask_logits, labels):
+        features = mask_logits
+        masks_phi = []
+        for class_num, feature in zip(labels, features):
+            x = feature[class_num]
+            x = self.cv(x)
+            masks_phi.append(x)
+
+        masks_phi = torch.tensor(masks_phi,  dtype=torch.float32)
+
+        mask_prob = masks_phi.sigmoid()
+
+        return mask_prob
 
     def forward(
         self,
@@ -62,7 +184,6 @@ class RoiHeadsWithTSDF(RoIHeads):
     ):
         if targets is not None:
             for t in targets:
-                # TODO: https://github.com/pytorch/pytorch/issues/26731
                 floating_point_types = (torch.float, torch.double, torch.half)
                 if not t["boxes"].dtype in floating_point_types:
                     raise TypeError(f"target boxes must of float type, instead got {t['boxes'].dtype}")
@@ -127,21 +248,25 @@ class RoiHeadsWithTSDF(RoIHeads):
                 mask_logits = self.mask_predictor(mask_features)
             else:
                 raise Exception("Expected mask_roi_pool to be not None")
-
+            
             loss_mask = {}
             if self.training:
                 if targets is None or pos_matched_idxs is None or mask_logits is None:
                     raise ValueError("targets, pos_matched_idxs, mask_logits cannot be None when training")
 
+
                 gt_masks = [t["masks"] for t in targets]
                 gt_labels = [t["labels"] for t in targets]
-                rcnn_loss_mask = maskrcnn_loss(mask_logits, mask_proposals, gt_masks, gt_labels, pos_matched_idxs)
+                rcnn_loss_mask = self.__apply_chan_vese_train__(mask_logits, mask_proposals, gt_labels, gt_masks, pos_matched_idxs)
+                # rcnn_loss_mask = maskrcnn_loss(mask_logits, mask_proposals, gt_masks, gt_labels, pos_matched_idxs)
                 loss_mask = {"loss_mask": rcnn_loss_mask}
             else:
                 labels = [r["labels"] for r in result]
-                masks_probs = maskrcnn_inference(mask_logits, labels)
-                for mask_prob, r in zip(masks_probs, result):
-                    r["masks"] = mask_prob
+                # masks_probs = maskrcnn_inference(mask_logits, labels)
+                masks_probs = self.__apply_chan_vese_eval__(mask_logits, labels[0])
+                result[0]["masks"] = torch.reshape(masks_probs, (masks_probs.shape[0], 1, masks_probs.shape[1], masks_probs.shape[2]))
+                # for mask_prob, r in zip(masks_probs, result):
+                #     r["masks"] = mask_prob
 
             losses.update(loss_mask)
 
