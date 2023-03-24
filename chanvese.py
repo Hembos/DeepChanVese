@@ -1,114 +1,130 @@
+from numba.pycc import CC
+from math import sqrt
+
 import numpy as np
-import matplotlib.pyplot as plt
-from PIL import Image
-from tqdm import tqdm
 
-def mask_to_phi(mask):
-    phi = np.zeros(mask.shape)
+cc = CC('chanvese_module')
 
-    for row, elems in enumerate(mask):
-        for col, elem in enumerate(elems):
-            phi[row][col] = -1 if elem == 0 else 1
+@cc.export('run', 'f8[:](f8[:], i4, i4, i4, f8[:], i4, f8[:], f8[:], f8, f8, f8)')
+def run(image, width, height, depth, init_phi, iter_num, eps, dt, lam1, lam2, alpha):
+    max_iter = iter_num
+    # alpha = 0.2
+    phi = np.zeros(width * height)
+    F = [float(0)] * width * height
+    phi_s = [float(0)] * width * height
+    dphidt = [float(0)] * width * height
+    curvature = [float(0)] * width * height
+    # eps = 0.00001
+    sussman_dt = 0.5
+
+    for i in range(height):
+        for j in range(width):
+            phi[i * width + j] = init_phi[i * width + j]
+
+    for iter in range(max_iter):
+        mean_neg = [float(0)] * depth
+        mean_pos = [float(0)] * depth
+
+        for c in range(depth):
+            c_neg = float(0)
+            c_pos = float(0)
+            for i in range(height):
+                for j in range(width):
+                    if phi[i * width + j] < 0:
+                        mean_neg[c] += image[i * width + j + c * width * height]
+                        c_neg += 1
+                    else:
+                        mean_pos[c] += image[i * width + j + c * width * height]
+                        c_pos += 1
+
+            mean_neg[c] = mean_neg[c] / (c_neg + eps[iter])
+            mean_pos[c] = mean_pos[c] / (c_pos + eps[iter])
+
+        max_F = float(0)
+        v1 = [float(0)] * depth
+        v2 = [float(0)] * depth
+        for i in range(height):
+            for j in range(width):
+                if phi[i * width + j] < 1.2 and phi[i * width + j] > -1.2:
+                    for c in range(depth):
+                        v1[c] = image[i * width + j + c * width * height] - mean_neg[c]
+                        v2[c] = image[i * width + j + c * width * height] - mean_pos[c]
+                    n1 = 0
+                    for v in v1:
+                        n1 += v**2
+                    n2 = 0
+                    for v in v2:
+                        n2 += v**2
+                    F[i * width + j] = lam2 * n1 - lam1 * n2
+                    max_F = max(max_F, abs(F[i * width + j]))
+
+        for y in range(height):
+            for x in range(width):
+                if phi[y * width + x] < 1.2 and phi[y * width + x] > -1.2:
+                    xm1 = 0 if x - 1 < 0 else x - 1
+                    ym1 = 0 if y - 1 < 0 else y - 1
+                    xp1 = width - 1 if x + 1 >= width else x + 1
+                    yp1 = height - 1 if y + 1 >= height else y + 1
+
+                    phi_x = -phi[y * width + xm1] + phi[y * width + xp1]
+                    phi_y = -phi[ym1*width + x] + phi[yp1*width + x]
+                    phi_xx = phi[y * width + xm1] + phi[y * width + xp1] - 2 * phi[y*width + x]
+                    phi_yy = phi[ym1 * width + x] + phi[yp1 * width + x] - 2 * phi[y * width + x]
+                    phi_xy = 0.25*(-phi[ym1*width + xm1] - phi[yp1*width + xp1] + phi[ym1*width + xp1] + phi[yp1*width + xm1])
+
+                    curvature[y*width + x] = phi_x*phi_x * phi_yy + phi_y*phi_y * phi_xx - 2 * phi_x * phi_y * phi_xy
+                    curvature[y*width + x] = curvature[y*width + x] / (phi_x*phi_x + phi_y*phi_y + eps[iter])
+                else:
+                    curvature[y*width + x] = 0
+
+        max_dphidt = float(0)
+        for y in range(height):
+            for x in range(width):
+                if phi[y * width + x] < 1.2 and phi[y * width + x] > -1.2:
+                    dphidt[y*width + x] = F[y*width + x] / max_F + alpha * curvature[y*width + x]
+                    max_dphidt = max(max_dphidt, abs(dphidt[y * width + x]))
+
+        dt[iter] = dt[iter] / (max_dphidt + eps[iter])
+
+        for y in range(height):
+            for x in range(width):
+                if phi[y * width + x] < 1.2 and phi[y * width + x] > -1.2:
+                    phi[y * width + x] += dt[iter] * dphidt[y * width + x]
+
+        for y in range(height):
+            for x in range(width):
+                l_x = x - 1 if x - 1 > 0 else width - 1
+                r_x = x + 1 if x + 1 < width else 0
+                u_y = y - 1 if y - 1 > 0 else height - 1
+                d_y = y + 1 if y + 1 < height else 0
+
+                if phi[y * width + x] > 0:
+                    a_p = max(phi[y * width + x] - phi[y * width + l_x], 0)
+                    b_n = min(phi[y * width + r_x] - phi[y * width + x], 0)
+                    c_p = max(phi[y*width + x] - phi[d_y*width + x], 0)
+                    d_n = min(phi[u_y*width + x] - phi[y*width + x], 0)
+
+                    d_phi = sqrt(max(a_p*a_p, b_n*b_n) + max(c_p*c_p, d_n*d_n)) - 1
+                    sussman_sign = phi[y*width + x] / sqrt(phi[y*width + x] * phi[y*width + x] + 1)
+                    phi_s[y*width + x] = phi[y*width + x] - sussman_dt * sussman_sign * d_phi
+                elif phi[y * width + x] < 0:
+                    a_n = min(phi[y * width + x] - phi[y * width + l_x], 0)
+                    b_p = max(phi[y * width + r_x] - phi[y * width + x], 0)
+                    c_n = min(phi[y*width + x] - phi[d_y*width + x], 0)
+                    d_p = max(phi[u_y*width + x] - phi[y*width + x], 0)
+
+                    d_phi = sqrt(max(a_n*a_n, b_p*b_p) + max(c_n*c_n, d_p*d_p)) - 1
+                    sussman_sign = phi[y*width + x] / sqrt(phi[y*width + x] * phi[y*width + x] + 1)
+                    phi_s[y*width + x] = phi[y*width + x] - sussman_dt * sussman_sign * d_phi
+                else:
+                    phi_s[y*width + x] = 0
+
+        for c in range(depth):
+            for y in range(height):
+                for x in range(width):
+                    phi[y*width + x] = phi_s[y*width + x]
 
     return phi
 
-def phi_to_mask(phi):
-    return phi >= 0.0
-    
-def sussman_sign(D):
-    return D / np.sqrt(D**2 + 1)
-
-class ChanVese():
-    def __init__(self, num_iter=20) -> None:
-        self.v = 0
-        self.eta = 1e-8
-
-        self.num_iter = num_iter
-
-    def run(self, input, initial_phi, dt = 0.5, eps = 1, lam1 = 1, lam2 = 1, mu = 0.2):
-        phi = initial_phi
-        for i in tqdm(range(self.num_iter), total=self.num_iter):
-            #c1 - average intensity inside object, c2 - average intensity outside object
-            c1, c2 = self.__calc_aver_intensity__(input, phi, eps[i])
-            # print(f"average intensities: {c1}, {c2}")
-
-            phi = self.__update_phi__(input, phi, c1, c2, dt[i], eps[i], lam1, lam2, mu)
-
-        return phi
-
-    def __heaviside__(self, x, eps):
-        return 0.5 * (1 + 2 / np.pi * np.arctan2(x / eps))
-
-    def __dirac__(self, x, eps):
-        return 1 / np.pi * eps / (np.power(eps, 2) + np.power(x, 2))
-    
-    def __calc_aver_intensity__(self, input, phi, eps):
-        c1_ind = np.flatnonzero(phi >= 0)
-        c2_ind = np.flatnonzero(phi < 0)
-
-        c1 = np.array([np.sum(x.flat[c1_ind]) for x in input]) / (len(c1_ind) + eps)
-        c2 = np.array([np.sum(x.flat[c2_ind]) for x in input]) / (len(c2_ind) + eps)
-
-        return (c1, c2)
-    
-    def __update_phi__(self, input, phi, c1, c2, dt, eps, lam1, lam2, mu):
-        # idx = np.nonzero(np.logical_and(phi <= 1.2, phi >= -1.2))
-
-        # if len(idx) < 0:
-        #     return
-
-        size = len(phi)
-        calc_a = lambda i, j: mu / np.sqrt(np.power(self.eta, 2) + 
-                                                np.power(phi[i + 1 if i<size-1 else i][j] - phi[i][j], 2) + 
-                                                np.power((phi[i][j + 1 if j<size-1 else j] - phi[i][j - 1 if j else 0]) / 2, 2))
-        
-        calc_b = lambda i, j: mu / np.sqrt(np.power(self.eta, 2) + 
-                                                np.power((phi[i + 1 if i<size-1 else i][j] - phi[i - 1 if i else 0][j]) / 2, 2) +
-                                                np.power(phi[i][j] - phi[i + 1 if i<size-1 else i][j], 2))
-        
-        for i, elems in enumerate(phi):
-            for j, elem in enumerate(elems):
-                a = calc_a(i, j)
-                b = calc_b(i, j)
-                up_a = calc_a(i - 1, j) if i else 0
-                left_b = calc_b(i, j - 1) if j else 0
-
-                dirac_val = self.__dirac__(elem, eps)
-
-                intensity_vec = input[:,i:i+1,j:j+1].flatten()
-
-                c1_norm = np.linalg.norm(intensity_vec - c1)
-                c2_norm = np.linalg.norm(intensity_vec - c2)
-                
-                tmp = phi[i][j] + dt * dirac_val * (a * phi[i + 1 if i<size-1 else i][j] +
-                                up_a * phi[i - 1 if i else 0][j] + 
-                                b * phi[i][j + 1 if j<size-1 else j] + 
-                                left_b * phi[i][j - 1 if j else 0] - self.v - 
-                                lam1 * np.power(c1_norm, 2) + lam2 * np.power(c2_norm, 2))
-
-                phi[i][j] =  tmp / (1 + dt * dirac_val * (a + b + up_a + left_b))
-
-        return phi
-
 if __name__=="__main__":
-    with Image.open("brain.png") as image:
-        img = np.array(image)
-
-    plt.imshow(img, cmap='gray')
-    # img = plt.imread("brain.png")
-    img_with_mask = np.zeros(img.shape)
-    img = img[:,:,2]
-    # print(img.shape)
-    mask = np.zeros(img.shape)
-    mask[20:100, 20:100] = 1
-
-    cv = ChanVese(img, mask)
-    final_mask = cv.run()
-
-    for i, elems in enumerate(img):
-        for j, elem in enumerate(elems):
-            img_with_mask[i][j] = (elem, elem, elem) if not final_mask[i][j] else (255, 0, 0)
-
-    # imgplot = plt.imshow(img_with_mask)
-    plt.imshow(img_with_mask / 255)
-    plt.show()
+    cc.compile()
