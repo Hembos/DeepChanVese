@@ -84,6 +84,10 @@ def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs
 
     phi_targets = (mask_targets - 0.5) / 0.5
 
+    abs_max_phi = max(abs(mask_logits.max()), abs(mask_logits.min()))
+
+    mask_logits = mask_logits/abs_max_phi
+
     l1_loss = F.l1_loss(mask_logits, phi_targets)
 
     mask_logits = mask_logits.sigmoid()
