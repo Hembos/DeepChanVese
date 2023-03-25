@@ -276,6 +276,7 @@ class RoiHeadsWithTSDF(RoIHeads):
                 labels = [r["labels"] for r in result]
                 # masks_probs = maskrcnn_inference(mask_logits, labels)
                 masks_probs = self.__apply_chan_vese_eval__(mask_logits, labels[0])
+                print(masks_probs)
                 result[0]["masks"] = torch.reshape(masks_probs, (masks_probs.shape[0], 1, masks_probs.shape[1], masks_probs.shape[2]))
                 # for mask_prob, r in zip(masks_probs, result):
                 #     r["masks"] = mask_prob
