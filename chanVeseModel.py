@@ -143,7 +143,7 @@ class RoiHeadsWithTSDF(RoIHeads):
             keypoint_head,
             keypoint_predictor)
         
-        self.cv = ChanVeseModel(100)
+        self.cv = ChanVeseModel(10)
         
     def __apply_chan_vese_train__(self, mask_logits, mask_proposals, gt_labels, gt_masks, mask_matched_idxs):
         features = mask_logits
