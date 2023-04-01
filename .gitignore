@@ -1,0 +1,8 @@
+*.pyc
+*.pyd
+venv
+*.png
+*.jpg
+dataset/test
+dataset/train
+__pycache__

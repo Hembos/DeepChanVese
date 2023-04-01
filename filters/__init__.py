@@ -1,0 +1,1 @@
+from .kuwahara_filter import apply_kuwahara_filter

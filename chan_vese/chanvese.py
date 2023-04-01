@@ -5,57 +5,48 @@ import numpy as np
 
 cc = CC('chanvese_module')
 
-@cc.export('run', 'f8[:](f8[:], i4, i4, i4, f8[:], i4, f8[:], f8[:], f8, f8, f8)')
-def run(image, width, height, depth, init_phi, iter_num, eps, dt, lam1, lam2, alpha):
+@cc.export('exec_chan_vese', 'f8[:](f8[:], i4, i4, f8[:], i4)')
+def exec_chan_vese(image, width, height, init_mask, iter_num):
     max_iter = iter_num
-    # alpha = 0.2
     phi = np.zeros(width * height)
     F = [float(0)] * width * height
     phi_s = [float(0)] * width * height
     dphidt = [float(0)] * width * height
     curvature = [float(0)] * width * height
-    # eps = 0.00001
+    eps = 0.00001
     sussman_dt = 0.5
+    dt_init = 0.45
+    lam1 = 0.5
+    lam2 = 0.5
+    alpha = 0.2
 
     for i in range(height):
         for j in range(width):
-            phi[i * width + j] = init_phi[i * width + j]
+            phi[i * width + j] = 1 if init_mask[i * width + j] else -1
 
     for iter in range(max_iter):
-        mean_neg = [float(0)] * depth
-        mean_pos = [float(0)] * depth
+        mean_neg = float(0)
+        mean_pos = float(0)
 
-        for c in range(depth):
-            c_neg = float(0)
-            c_pos = float(0)
-            for i in range(height):
-                for j in range(width):
-                    if phi[i * width + j] < 0:
-                        mean_neg[c] += image[i * width + j + c * width * height]
-                        c_neg += 1
-                    else:
-                        mean_pos[c] += image[i * width + j + c * width * height]
-                        c_pos += 1
+        c_neg = float(0)
+        c_pos = float(0)
+        for i in range(height):
+            for j in range(width):
+                if phi[i * width + j] < 0:
+                    mean_neg += image[i * width + j]
+                    c_neg += 1
+                else:
+                    mean_pos += image[i * width + j]
+                    c_pos += 1
 
-            mean_neg[c] = mean_neg[c] / (c_neg + eps[iter])
-            mean_pos[c] = mean_pos[c] / (c_pos + eps[iter])
+        mean_neg = mean_neg / (c_neg + eps)
+        mean_pos = mean_pos / (c_pos + eps)
 
         max_F = float(0)
-        v1 = [float(0)] * depth
-        v2 = [float(0)] * depth
         for i in range(height):
             for j in range(width):
                 if phi[i * width + j] < 1.2 and phi[i * width + j] > -1.2:
-                    for c in range(depth):
-                        v1[c] = image[i * width + j + c * width * height] - mean_neg[c]
-                        v2[c] = image[i * width + j + c * width * height] - mean_pos[c]
-                    n1 = 0
-                    for v in v1:
-                        n1 += v**2
-                    n2 = 0
-                    for v in v2:
-                        n2 += v**2
-                    F[i * width + j] = lam2 * n1 - lam1 * n2
+                    F[i * width + j] = lam2 * (image[i * width + j] - mean_neg) ** 2 - lam1 * (image[i * width + j] - mean_pos) ** 2
                     max_F = max(max_F, abs(F[i * width + j]))
 
         for y in range(height):
@@ -73,7 +64,7 @@ def run(image, width, height, depth, init_phi, iter_num, eps, dt, lam1, lam2, al
                     phi_xy = 0.25*(-phi[ym1*width + xm1] - phi[yp1*width + xp1] + phi[ym1*width + xp1] + phi[yp1*width + xm1])
 
                     curvature[y*width + x] = phi_x*phi_x * phi_yy + phi_y*phi_y * phi_xx - 2 * phi_x * phi_y * phi_xy
-                    curvature[y*width + x] = curvature[y*width + x] / (phi_x*phi_x + phi_y*phi_y + eps[iter])
+                    curvature[y*width + x] = curvature[y*width + x] / (phi_x*phi_x + phi_y*phi_y + eps)
                 else:
                     curvature[y*width + x] = 0
 
@@ -84,12 +75,12 @@ def run(image, width, height, depth, init_phi, iter_num, eps, dt, lam1, lam2, al
                     dphidt[y*width + x] = F[y*width + x] / max_F + alpha * curvature[y*width + x]
                     max_dphidt = max(max_dphidt, abs(dphidt[y * width + x]))
 
-        dt[iter] = dt[iter] / (max_dphidt + eps[iter])
+        dt = dt_init / (max_dphidt + eps)
 
         for y in range(height):
             for x in range(width):
                 if phi[y * width + x] < 1.2 and phi[y * width + x] > -1.2:
-                    phi[y * width + x] += dt[iter] * dphidt[y * width + x]
+                    phi[y * width + x] += dt * dphidt[y * width + x]
 
         for y in range(height):
             for x in range(width):
@@ -119,10 +110,9 @@ def run(image, width, height, depth, init_phi, iter_num, eps, dt, lam1, lam2, al
                 else:
                     phi_s[y*width + x] = 0
 
-        for c in range(depth):
-            for y in range(height):
-                for x in range(width):
-                    phi[y*width + x] = phi_s[y*width + x]
+        for y in range(height):
+            for x in range(width):
+                phi[y*width + x] = phi_s[y*width + x]
 
     return phi
 
