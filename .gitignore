@@ -6,3 +6,6 @@ venv
 dataset/test
 dataset/train
 __pycache__
+output
+*.json
+*.tif
