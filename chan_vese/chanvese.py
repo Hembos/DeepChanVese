@@ -5,8 +5,8 @@ import numpy as np
 
 cc = CC('chanvese_module')
 
-@cc.export('exec_chan_vese', 'f8[:](f8[:], i4, i4, f8[:], i4)')
-def exec_chan_vese(image, width, height, init_mask, iter_num):
+@cc.export('exec_chan_vese', 'f8[:](f8[:], i4, i4, f8[:], i4, f8, f8, f8, f8, f8)')
+def exec_chan_vese(image, width, height, init_mask, iter_num, lam1, lam2, sussman_dt, alpha, dt_init):
     max_iter = iter_num
     phi = np.zeros(width * height)
     F = [float(0)] * width * height
@@ -14,11 +14,11 @@ def exec_chan_vese(image, width, height, init_mask, iter_num):
     dphidt = [float(0)] * width * height
     curvature = [float(0)] * width * height
     eps = 0.00001
-    sussman_dt = 0.5
-    dt_init = 0.45
-    lam1 = 0.5
-    lam2 = 0.5
-    alpha = 0.2
+    # sussman_dt = 0.5
+    # dt_init = 0.45
+    # lam1 = 1
+    # lam2 = 1
+    # alpha = 0.2
 
     for i in range(height):
         for j in range(width):
@@ -49,6 +49,7 @@ def exec_chan_vese(image, width, height, init_mask, iter_num):
                     F[i * width + j] = lam2 * (image[i * width + j] - mean_neg) ** 2 - lam1 * (image[i * width + j] - mean_pos) ** 2
                     max_F = max(max_F, abs(F[i * width + j]))
 
+        max_dphidt = float(0)
         for y in range(height):
             for x in range(width):
                 if phi[y * width + x] < 1.2 and phi[y * width + x] > -1.2:
@@ -68,11 +69,8 @@ def exec_chan_vese(image, width, height, init_mask, iter_num):
                 else:
                     curvature[y*width + x] = 0
 
-        max_dphidt = float(0)
-        for y in range(height):
-            for x in range(width):
                 if phi[y * width + x] < 1.2 and phi[y * width + x] > -1.2:
-                    dphidt[y*width + x] = F[y*width + x] / max_F + alpha * curvature[y*width + x]
+                    dphidt[y*width + x] = F[y*width + x] / (max_F + eps) + alpha * curvature[y*width + x]
                     max_dphidt = max(max_dphidt, abs(dphidt[y * width + x]))
 
         dt = dt_init / (max_dphidt + eps)

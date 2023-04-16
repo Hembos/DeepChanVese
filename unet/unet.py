@@ -62,8 +62,8 @@ class Decoder(Module):
 
 
 class UNet(Module):
-    def __init__(self, encChannels: tuple = (3, 16, 32, 64),
-            decChannels: tuple = (64, 32, 16),
+    def __init__(self, encChannels: tuple = (3, 32, 64, 128),
+            decChannels: tuple = (128, 64, 32),
             nbClasses: int = 1, retainDim: bool = True,
             outSize: tuple = (INPUT_IMAGE_HEIGHT,  INPUT_IMAGE_WIDTH)) -> None:
         super().__init__()

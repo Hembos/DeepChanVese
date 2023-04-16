@@ -1,5 +1,9 @@
 *.pyc
 *.pyd
+dataset/train
+dataset/test
+cellDataset/
+cocoDataset/
 venv
 dataset/test
 dataset/train

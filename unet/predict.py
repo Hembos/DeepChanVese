@@ -29,18 +29,24 @@ def apply_chan_vese(init_mask: np.ndarray, image: np.ndarray) -> Tuple[list, np.
         boxes.append([xmin, ymin, xmax, ymax])
 
         clipped_image = image[ymin:ymax,xmin:xmax][:,:,:1]
-        phi = exec_chan_vese(clipped_image.astype(np.float64).flatten(), clipped_image.shape[1], clipped_image.shape[0], masks[i].astype(np.float64)[ymin:ymax,xmin:xmax].flatten(), 1000)
+        phi = exec_chan_vese(clipped_image.astype(np.float64).flatten(), clipped_image.shape[1], clipped_image.shape[0], 
+                             masks[i].astype(np.float64)[ymin:ymax,xmin:xmax].flatten(), CHAN_VESE_ITER_NUM,
+                             1, 1, 0.5, 0.2, 0.45)
         phi = np.reshape(phi, (clipped_image.shape[0], clipped_image.shape[1]))
 
         masks[i][ymin:ymax,xmin:xmax] = phi >= 0
 
     return (boxes, masks)
-	
-def make_predictions(imagePath: str) -> Tuple[list, np.ndarray]:
+
+model = None
+if not IS_TRAIN:
     model = torch.load(MODEL_PATH).to(DEVICE)
 
     model.eval()
+
+def make_predictions(imagePath: str) -> Tuple[list, np.ndarray]:
     with torch.no_grad():
+        start = time()
         image = cv2.imread(imagePath)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         image = image.astype("float32") / 255.0
@@ -50,14 +56,22 @@ def make_predictions(imagePath: str) -> Tuple[list, np.ndarray]:
         image = np.transpose(image, (2, 0, 1))
         image = np.expand_dims(image, 0)
         image = torch.from_numpy(image).to(DEVICE)
+        end = time()
+        print(f"Prepare: {end - start}")
 
+        start = time()
         predMask = model(image)
         predMask = torch.nn.Upsample(scale_factor=4, mode='nearest')(torch.sigmoid(predMask)).squeeze()
         predMask = predMask.cpu().numpy()
 
         predMask = (predMask > THRESHOLD) * 255
         predMask = predMask.astype(np.uint8)
+        end = time()
+        print(f"Unet: {end - start}")
 
+        start = time()
         boxes, final_masks = apply_chan_vese(predMask, orig)
+        end = time()
+        print(f"ChanVese: {end - start}")
 
         return (boxes, final_masks)

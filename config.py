@@ -28,9 +28,19 @@ INPUT_IMAGE_WIDTH = 512
 INPUT_IMAGE_HEIGHT = 512
 SCALE_FACTOR = 0.25
 
-THRESHOLD = 0.4
+THRESHOLD = 0.7
+
+CHAN_VESE_ITER_NUM = 500
+CHAN_VESE_USE_GPU = False
 
 BASE_OUTPUT = "output"
 
-MODEL_PATH = os.path.join(BASE_OUTPUT, "unet_tgs_salt.pth")
-PLOT_PATH = os.path.sep.join([BASE_OUTPUT, "plot.png"])
+MODEL_PATH = os.path.join(BASE_OUTPUT, "unet_tgs_salt_old.pth")
+PLOT_PATH = os.path.sep.join([BASE_OUTPUT, "plot_loss_cell.png"])
+TEST_PRECISION_PATH = os.path.sep.join([BASE_OUTPUT, "test_precision_cell.json"])
+PLOT_ACCURACY_PATH = os.path.sep.join([BASE_OUTPUT, "plot_accuracy_cell.png"])
+PLOT_RECALL_PATH = os.path.sep.join([BASE_OUTPUT, "plot_recall_cell.png"])
+PLOT_PRECISION_PATH = os.path.sep.join([BASE_OUTPUT, "plot_precision_cell.png"])
+PLOT_F1_PATH = os.path.sep.join([BASE_OUTPUT, "plot_f1_cell.png"])
+
+IS_TRAIN = False

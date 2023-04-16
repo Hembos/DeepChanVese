@@ -2,18 +2,21 @@ from torch.utils.data import Dataset
 import os
 from torchvision.transforms import transforms as T
 
-from config import MASK_DATASET_PATH, IMAGE_DATASET_PATH
+from config import *
 
 from PIL import Image
 
-import numpy as np
+from torchvision.utils import draw_segmentation_masks
+import matplotlib.pyplot as plt
+
 
 class SegmentationDataset(Dataset):
-    def __init__(self, transforms: T.Compose = None) -> None:
+    def __init__(self, transforms: T.Compose = None, transforms_mask: T.Compose = None) -> None:
         super().__init__()
         self.imagesPath = list(sorted(os.listdir(IMAGE_DATASET_PATH)))
         self.masksPath = list(sorted(os.listdir(MASK_DATASET_PATH)))
         self.transforms = transforms
+        self.transforms_mask = transforms_mask
 
     def __len__(self):
         return len(self.imagesPath)
@@ -27,6 +30,11 @@ class SegmentationDataset(Dataset):
 
         if self.transforms is not None:
             image = self.transforms(image)
-            mask = self.transforms(mask)
+            mask = self.transforms_mask(mask)
+
+        # draw = draw_segmentation_masks((image * 255).type(torch.uint8), (mask).type(torch.bool))
+        # plt.imshow(torch.permute(draw, (1, 2, 0)))
+        
+        # plt.show()
 
         return (image, mask)

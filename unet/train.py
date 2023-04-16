@@ -11,12 +11,14 @@ import torch
 import time
 import os
 
-
 def train() -> None:
     transforms = T.Compose([T.Resize((round(INPUT_IMAGE_HEIGHT * SCALE_FACTOR), round(INPUT_IMAGE_WIDTH * SCALE_FACTOR))),
     T.ToTensor()])
 
-    dataset = SegmentationDataset(transforms)
+    transforms_mask = T.Compose([T.Resize((round(INPUT_IMAGE_HEIGHT * SCALE_FACTOR), round(INPUT_IMAGE_WIDTH * SCALE_FACTOR))),
+    T.ToTensor()])
+
+    dataset = SegmentationDataset(transforms, transforms_mask)
 
     torch.manual_seed(1)
     indices = torch.randperm(len(dataset)).tolist()
