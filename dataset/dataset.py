@@ -6,10 +6,6 @@ from config import *
 
 from PIL import Image
 
-from torchvision.utils import draw_segmentation_masks
-import matplotlib.pyplot as plt
-
-
 class SegmentationDataset(Dataset):
     def __init__(self, transforms: T.Compose = None, transforms_mask: T.Compose = None) -> None:
         super().__init__()
@@ -31,10 +27,5 @@ class SegmentationDataset(Dataset):
         if self.transforms is not None:
             image = self.transforms(image)
             mask = self.transforms_mask(mask)
-
-        # draw = draw_segmentation_masks((image * 255).type(torch.uint8), (mask).type(torch.bool))
-        # plt.imshow(torch.permute(draw, (1, 2, 0)))
-        
-        # plt.show()
 
         return (image, mask)
